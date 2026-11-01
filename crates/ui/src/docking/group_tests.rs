@@ -842,3 +842,37 @@ fn frame_tabs_follow_the_wheel_and_close_on_a_middle_click() {
     assert_eq!(out.actions, vec![Action::Close { panel: 2 }]);
     assert_eq!(second(&d), tabs(&[3], 0));
 }
+
+/// `active_tab_line` underlines each group's active tab in the accent colour, and only that tab;
+/// at its default of 0 pt nothing is drawn.
+#[test]
+fn the_active_tab_is_underlined_in_the_accent_only_when_asked() {
+    const ACCENT: Color32 = Color32::from_rgb(250, 10, 200);
+    fn underlined(d: &Driver, panel: u32) -> bool {
+        fn filled(shape: &egui::Shape, rect: Rect) -> bool {
+            match shape {
+                egui::Shape::Rect(shape) => shape.rect == rect && shape.fill == ACCENT,
+                egui::Shape::Vec(shapes) => shapes.iter().any(|shape| filled(shape, rect)),
+                _ => false,
+            }
+        }
+        let tab = d.tab(panel);
+        let line = Rect::from_min_max(pos2(tab.left(), tab.bottom() - 3.0), tab.max);
+        d.shapes.iter().any(|clipped| filled(&clipped.shape, line))
+    }
+    let mut d = Driver::new(frames());
+    d.tweak = |s| s.accent = ACCENT;
+    d.step(vec![]);
+    assert!(!underlined(&d, 3), "off by default");
+
+    d.tweak = |s| {
+        s.accent = ACCENT;
+        s.active_tab_line = 3.0;
+    };
+    d.step(vec![]);
+    assert!(underlined(&d, 1) && underlined(&d, 3), "every group's active tab");
+    assert!(!underlined(&d, 2), "not the inactive tab");
+    d.click(d.tab(2).center());
+    d.step(vec![]);
+    assert!(underlined(&d, 2) && !underlined(&d, 3), "follows the selection");
+}

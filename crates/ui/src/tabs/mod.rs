@@ -36,6 +36,17 @@ fn extent(value: f32) -> f32 {
 /// `overflow_width` never exceed the sanitized available width. Work and storage are linear in
 /// the input count (with at most 32 fitting passes); callers keep their own tab-count policy.
 pub fn fit(natural: &[f32], selected: usize, available: f32, minimum_width: f32, overflow_width: f32) -> TabFit {
+    fit_shrinking(natural, selected, available, minimum_width, overflow_width, false)
+}
+
+/// [`fit`], except that the selected tab keeps its natural width and only the others shrink, then
+/// overflow, around it. A selected tab wider than the strip less the overflow button takes that
+/// room alone, and its painter elides the label. Dimensions are sanitized as in [`fit`].
+pub fn fit_selected_whole(natural: &[f32], selected: usize, available: f32, minimum_width: f32, overflow_width: f32) -> TabFit {
+    fit_shrinking(natural, selected, available, minimum_width, overflow_width, true)
+}
+
+fn fit_shrinking(natural: &[f32], selected: usize, available: f32, minimum_width: f32, overflow_width: f32, whole: bool) -> TabFit {
     let available = extent(available);
     let minimum_width = extent(minimum_width);
     let natural: Vec<f32> = natural.iter().map(|&w| extent(w)).collect();
@@ -47,18 +58,18 @@ pub fn fit(natural: &[f32], selected: usize, available: f32, minimum_width: f32,
     if natural.len() == 1 {
         return TabFit { shown: vec![(0, available)], ..Default::default() };
     }
-    let floor = |w: f32| w.min(minimum_width);
-    if natural.iter().map(|&w| f64::from(floor(w))).sum::<f64>() <= f64::from(available) {
-        return TabFit { shown: squeeze(&natural, &all, available, minimum_width), ..Default::default() };
+    let selected = selected.min(natural.len().saturating_sub(1));
+    let floor = |i: usize, w: f32| if whole && i == selected { w } else { w.min(minimum_width) };
+    if natural.iter().enumerate().map(|(i, &w)| f64::from(floor(i, w))).sum::<f64>() <= f64::from(available) {
+        return TabFit { shown: shrink(&natural, &all, selected, whole, available, minimum_width), ..Default::default() };
     }
     let overflow_width = extent(overflow_width).min(available);
     let budget = available - overflow_width;
-    let selected = selected.min(natural.len().saturating_sub(1));
     let mut keep = vec![false; natural.len()];
     let mut used = 0.0f64;
     for i in std::iter::once(selected).chain(all.iter().copied().filter(|&i| i != selected)) {
         let Some(&width) = natural.get(i) else { continue };
-        let width = f64::from(floor(width));
+        let width = f64::from(floor(i, width));
         if i == selected || used + width <= f64::from(budget) {
             if let Some(keep) = keep.get_mut(i) {
                 *keep = true;
@@ -67,8 +78,22 @@ pub fn fit(natural: &[f32], selected: usize, available: f32, minimum_width: f32,
         }
     }
     let (shown, overflow): (Vec<usize>, Vec<usize>) = all.into_iter().partition(|&i| keep.get(i).copied().unwrap_or(false));
-    let shown = squeeze(&natural, &shown, budget, minimum_width);
+    let shown = shrink(&natural, &shown, selected, whole, budget, minimum_width);
     TabFit { shown, overflow, overflow_width }
+}
+
+/// [`squeeze`] the `indices` into `total`; with `whole`, the selected tab first takes its natural
+/// width (at most `total`) and the others share what is left.
+fn shrink(natural: &[f32], indices: &[usize], selected: usize, whole: bool, total: f32, minimum: f32) -> Vec<(usize, f32)> {
+    if !whole || !indices.contains(&selected) {
+        return squeeze(natural, indices, total, minimum);
+    }
+    let own = natural.get(selected).copied().unwrap_or(0.0).min(total);
+    let others: Vec<usize> = indices.iter().copied().filter(|&i| i != selected).collect();
+    let mut shown = squeeze(natural, &others, total - own, minimum);
+    let at = shown.partition_point(|(i, _)| *i < selected);
+    shown.insert(at, (selected, own));
+    shown
 }
 
 /// Fit tabs at their natural widths; the tabs that do not fit go to an overflow menu.

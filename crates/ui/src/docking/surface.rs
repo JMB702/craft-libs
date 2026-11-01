@@ -21,6 +21,13 @@ pub struct DockStyle {
     pub inactive_text: Color32,
     pub border: Stroke,
     pub accent: Color32,
+    /// Thickness of the [`Self::accent`] line along the bottom of each group's active tab, so
+    /// the shown panel reads at a glance (0 pt: none).
+    pub active_tab_line: f32,
+    /// Each group's active tab keeps its full name while the other tabs shrink, then overflow,
+    /// around it ([`crate::tabs::fit_selected_whole`]). Off: the widest tabs shrink first,
+    /// the active one included.
+    pub active_tab_whole: bool,
     pub font: FontId,
     /// Localize these action labels in the application adapter.
     pub float_label: String,
@@ -183,6 +190,8 @@ impl DockStyle {
             inactive_text: visuals.weak_text_color(),
             border: visuals.widgets.noninteractive.bg_stroke,
             accent: visuals.selection.stroke.color,
+            active_tab_line: 0.0,
+            active_tab_whole: false,
             min_tab_width: font.size * 2.5 + TAB_PADDING,
             font,
             float_label: "Float Panel".into(),

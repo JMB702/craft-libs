@@ -102,7 +102,7 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
         // The widest tabs shrink first, to a common width no narrower than `min_tab_width`; only
         // when every tab at that width cannot fit do the rest go to the overflow menu. A tab
         // narrower than its name cuts it with "…" and names it in a tooltip.
-        let (fit, extra_width) = fit_with_extra(&widths, active, tabs_width, wanted, self.style.min_tab_width);
+        let (fit, extra_width) = fit_with_extra(&widths, active, tabs_width, wanted, self.style.min_tab_width, self.style.active_tab_whole);
         let owner = TabGroup { panels, selected, minimized, kind, rect };
         let mut x = strip.left();
         let mut shown = Vec::new();
@@ -405,6 +405,10 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
                 painter.rect_filled(rect, 0.0, if active || response.hovered() { self.style.active_background } else { self.style.tab_background });
                 let at = pos2(rect.left() + TAB_PADDING * 0.5, rect.center().y - galley.size().y * 0.5);
                 painter.galley(at, galley.clone(), color);
+                let line = self.style.active_tab_line.min(rect.height());
+                if active && line > 0.0 {
+                    painter.rect_filled(Rect::from_min_max(pos2(rect.left(), rect.bottom() - line), rect.max), 0.0, self.style.accent);
+                }
             });
         let response = if elided { response.on_hover_text(&label) } else { response };
         self.register_interaction(ui.ctx(), response.id);
@@ -493,18 +497,20 @@ impl<P: Clone + Eq + Hash + Debug + Send + Sync + 'static> Renderer<'_, P> {
 
 /// Fit the panel tabs and the host's extra tabs (`extra` wide), which fit as one more tab that
 /// never overflows: in a row too narrow for every tab at its minimum width, the panel tabs
-/// overflow into the room the extra tabs leave at theirs. Returns the extra tabs' width.
-fn fit_with_extra(widths: &[f32], active: usize, available: f32, extra: f32, minimum: f32) -> (tabs::TabFit, f32) {
+/// overflow into the room the extra tabs leave at theirs. With `whole`, the active tab keeps its
+/// natural width. Returns the extra tabs' width.
+fn fit_with_extra(widths: &[f32], active: usize, available: f32, extra: f32, minimum: f32, whole: bool) -> (tabs::TabFit, f32) {
+    let fit_tabs = if whole { tabs::fit_selected_whole } else { tabs::fit };
     if extra <= 0.0 {
-        return (tabs::fit(widths, active, available, minimum, OVERFLOW_WIDTH), 0.0);
+        return (fit_tabs(widths, active, available, minimum, OVERFLOW_WIDTH), 0.0);
     }
     let all: Vec<f32> = widths.iter().copied().chain([extra]).collect();
-    let mut fit = tabs::fit(&all, active, available, minimum, OVERFLOW_WIDTH);
+    let mut fit = fit_tabs(&all, active, available, minimum, OVERFLOW_WIDTH);
     if fit.overflow.is_empty() {
         let width = fit.shown.pop().filter(|(index, _)| *index == widths.len()).map_or(0.0, |(_, width)| width);
         return (fit, width);
     }
-    let fit = tabs::fit(widths, active, (available - extra.min(minimum)).max(0.0), minimum, OVERFLOW_WIDTH);
+    let fit = fit_tabs(widths, active, (available - extra.min(minimum)).max(0.0), minimum, OVERFLOW_WIDTH);
     let used = fit.shown.iter().map(|(_, width)| width).sum::<f32>() + fit.overflow_width;
     (fit, extra.min(available - used).max(0.0))
 }

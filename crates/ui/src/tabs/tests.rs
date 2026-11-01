@@ -114,6 +114,36 @@ fn only_a_selected_tab_wider_than_the_strip_is_narrowed() {
     assert!(f.shown.iter().all(|&(_, w)| w.is_finite() && w >= 0.0) && total(&f) == 0.0);
 }
 
+#[test]
+fn a_whole_selected_tab_keeps_its_width_while_the_others_shrink_then_overflow() {
+    // Project, Media Browser, Libraries in 210 pt: fit cuts them all to 70; here Project keeps 90.
+    let natural = [90.0, 140.0, 100.0];
+    assert!(fit(&natural, 0, 210.0, 54.0, 22.0).shown.iter().all(|&(_, w)| (w - 70.0).abs() < 0.01));
+    let f = fit_selected_whole(&natural, 0, 210.0, 54.0, 22.0);
+    assert_eq!(f.shown[0], (0, 90.0));
+    assert!(f.overflow.is_empty() && (total(&f) - 210.0).abs() < 0.01, "{f:?}");
+    assert!((f.shown[1].1 - 60.0).abs() < 0.01 && (f.shown[2].1 - 60.0).abs() < 0.01, "{f:?}");
+    // Too narrow for the others at their minimum: they overflow, the selected tab stays whole.
+    let f = fit_selected_whole(&natural, 1, 200.0, 54.0, 22.0);
+    assert_eq!(f.shown, [(1, 140.0)]);
+    assert_eq!(f.overflow, [0, 2]);
+    // Wider than the strip less the button: it takes that room alone.
+    assert_eq!(fit_selected_whole(&natural, 1, 100.0, 54.0, 22.0).shown, [(1, 78.0)]);
+    for selected in [0, 1, 2, usize::MAX] {
+        for available in [0.0, 1.0, 22.0, 60.0, 150.0, 210.0, 260.0, 400.0] {
+            let f = fit_selected_whole(&natural, selected, available, 54.0, 22.0);
+            let selected = selected.min(2);
+            let own = f.shown.iter().find(|&&(i, _)| i == selected).map(|&(_, w)| w);
+            assert_eq!(own, Some(natural[selected].min(available - f.overflow_width)), "{selected} at {available}: {f:?}");
+            assert!(f.shown.windows(2).all(|w| w[0].0 < w[1].0));
+            assert_eq!(f.shown.len() + f.overflow.len(), 3);
+            assert!(total(&f) <= available + 0.001, "{available}: {f:?}");
+        }
+    }
+    let f = fit_selected_whole(&[f32::NAN, f32::INFINITY, -5.0, 30.0], usize::MAX, f32::NAN, f32::MAX, f32::MAX);
+    assert!(f.shown.iter().all(|&(_, w)| w.is_finite() && w >= 0.0) && total(&f) == 0.0);
+}
+
 struct TabTest {
     ctx: Context,
     labels: [String; 2],
